@@ -1,5 +1,7 @@
 # 🕵️ Build Detective
 
+AI slop <- yes I know, but at least its manually QC'ed :)
+
 **AI-powered CI/build failure analysis for development teams**
 
 ```
