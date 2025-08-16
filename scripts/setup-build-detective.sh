@@ -158,14 +158,27 @@ main() {
     # Write customized file
     echo "$customized_content" > "$target_file"
     
+    # Copy Haiku CI analyzer
+    echo -e "${BLUE}Installing Haiku CI analyzer...${NC}"
+    local haiku_analyzer="$SCRIPT_DIR/../haiku_ci_analyzer.py"
+    if [[ -f "$haiku_analyzer" ]]; then
+        cp "$haiku_analyzer" "$target_path/"
+        echo "Copied: $target_path/haiku_ci_analyzer.py"
+    else
+        echo -e "${YELLOW}Warning: haiku_ci_analyzer.py not found at $haiku_analyzer${NC}"
+        echo "You can download it from: https://github.com/StigLau/build-detective"
+    fi
+    
     echo -e "${GREEN}✅ Build Detective successfully set up!${NC}"
     echo ""
     echo "Created: $target_file"
     echo ""
     echo -e "${BLUE}Next steps:${NC}"
-    echo "1. Review and adjust $target_file if needed"
-    echo "2. Test with: Use the build-detective to investigate this build failure: [URL]"
-    echo "3. Add to your project's CLAUDE.md delegation triggers"
+    echo "1. Set ANTHROPIC_API_KEY environment variable for Haiku integration"
+    echo "2. Review and adjust $target_file if needed"
+    echo "3. Test Haiku analyzer: python3 haiku_ci_analyzer.py <repo> <pr_number>"
+    echo "4. Test with Claude: Use the build-detective to investigate this build failure: [URL]"
+    echo "5. Add to your project's CLAUDE.md delegation triggers"
     echo ""
     echo -e "${BLUE}Integration example:${NC}"
     echo "Add to CLAUDE.md subagent delegation:"
