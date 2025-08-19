@@ -1,0 +1,4 @@
+I want an (Claude Code) Agent, Build Detective, that can integrate with my github account, parse projects, find CI tests that have failed, analyze them and report them back with a confidence that your assumption is correct. The intent of the agent is that it should run fast, keep the cost of expensive tokens low, Haiku model sounds appropriate. 
+To avoid getting stuck in a loop of fixing the same problem in the same wrong way again and again, build a small issue tracker for seen and solved problems.
+Claude code Sonnet will be responsible for running the agent, delegating tasks, ensuring QC and improving the agent. Use Git for version control.
+Generate the .md documents and code outlines so Claude Code/LLM knows how to structure

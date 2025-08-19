@@ -1,0 +1,31 @@
+# Build Detective Configuration
+
+# Claude AI Configuration
+claude:
+  orchestrator_model: "claude-3-5-sonnet-20241022"
+  analyzer_model: "claude-3-haiku-20240307"
+  max_tokens_per_request: 1000
+  temperature: 0.2
+
+# GitHub Integration
+github:
+  poll_interval: 300  # seconds between checks
+  max_repos: 10       # maximum repositories to monitor
+  webhook_port: 8080  # port for webhook server
+
+# Analysis Configuration
+analysis:
+  confidence_threshold: 0.7  # minimum confidence for auto-solutions
+  max_retries: 3            # retries for failed analyses
+  cache_ttl: 3600          # cache time-to-live in seconds
+
+# Reporting
+reporting:
+  format: "markdown"
+  include_suggestions: true
+  max_issues_per_report: 20
+
+# Repositories to monitor (for continuous mode)
+repos:
+  - "StigLau/yolo-ffmpeg-mcp"
+  # Add more repos here for monitoring
