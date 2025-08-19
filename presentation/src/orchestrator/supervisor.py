@@ -155,18 +155,24 @@ class Supervisor:
         )
         
         for failure in failures:
-            failure_id = failure.get('id', str(hash(str(failure))))
+            # Convert CIFailure dataclass to dict for consistency
+            if hasattr(failure, '__dict__'):
+                failure_dict = failure.__dict__
+            else:
+                failure_dict = failure
+                
+            failure_id = failure_dict.get('id', str(hash(str(failure))))
             
             # Check if we've seen this before
-            if self.issue_db.has_recent_solution(failure):
+            if self.issue_db.has_recent_solution(failure_dict):
                 plan.use_cache.append(failure_id)
             else:
                 plan.need_analysis.append(failure_id)
                 # Group by error type for batching
-                error_type = self._categorize_error(failure)
+                error_type = self._categorize_error(failure_dict)
                 if error_type not in plan.batch_groups:
                     plan.batch_groups[error_type] = []
-                plan.batch_groups[error_type].append(failure)
+                plan.batch_groups[error_type].append(failure_dict)
         
         # Estimate token usage
         for group in plan.batch_groups.values():
@@ -225,8 +231,8 @@ class Supervisor:
     
     def _categorize_error(self, failure: Dict) -> str:
         """Categorize failure type for batching"""
-        logs = failure.get('logs', '').lower()
-        error_msg = failure.get('error', '').lower()
+        logs = (failure.get('logs') or '').lower()
+        error_msg = (failure.get('error') or '').lower()
         
         combined = f"{logs} {error_msg}"
         

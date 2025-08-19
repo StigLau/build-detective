@@ -33,7 +33,7 @@ install: setup ## Install Python dependencies
 
 test-cli: ## Test CLI interface
 	@echo "$(GREEN)🧪 Testing CLI interface...$(NC)"
-	python src/main.py --help
+	uv run python src/main.py --help
 	@echo "$(GREEN)✅ CLI test passed$(NC)"
 
 analyze: ## Analyze a repository (usage: make analyze REPO=owner/repo)
@@ -42,7 +42,7 @@ analyze: ## Analyze a repository (usage: make analyze REPO=owner/repo)
 		exit 1; \
 	fi
 	@echo "$(GREEN)🔍 Analyzing $(REPO)...$(NC)"
-	cd src && python main.py --repo $(REPO) --mode single
+	uv run python src/main.py --repo $(REPO) --mode single
 
 analyze-pr: ## Analyze a specific PR (usage: make analyze-pr REPO=owner/repo PR=123)
 	@if [ -z "$(REPO)" ] || [ -z "$(PR)" ]; then \
@@ -50,15 +50,15 @@ analyze-pr: ## Analyze a specific PR (usage: make analyze-pr REPO=owner/repo PR=
 		exit 1; \
 	fi
 	@echo "$(GREEN)🔍 Analyzing $(REPO) PR#$(PR)...$(NC)"
-	cd src && python main.py --repo $(REPO) --pr $(PR)
+	uv run python src/main.py --repo $(REPO) --pr $(PR)
 
 monitor: ## Start continuous monitoring mode
 	@echo "$(GREEN)👁️ Starting continuous monitoring...$(NC)"
-	cd src && python main.py --mode continuous
+	uv run python src/main.py --mode continuous
 
 report: ## Generate failure report for last 7 days
 	@echo "$(GREEN)📊 Generating failure report...$(NC)"
-	cd src && python main.py --report --days 7
+	uv run python src/main.py --report --days 7
 
 check-gh: ## Check if GitHub CLI is installed and authenticated
 	@echo "$(GREEN)🔍 Checking GitHub CLI...$(NC)"
@@ -85,7 +85,7 @@ demo-pr: ## Run demo PR analysis on yolo-ffmpeg-mcp PR#16
 
 stats: ## Show database statistics
 	@echo "$(GREEN)📊 Database statistics:$(NC)"
-	@python -c "import sys; sys.path.append('src'); from issue_tracker.database import IssueDatabase; db = IssueDatabase(); stats = db.get_statistics(); print(f'Total issues: {stats.get(\"total_issues\", 0)}'); print(f'Cached solutions: {stats.get(\"cached_solutions\", 0)}'); print(f'Recent activity: {stats.get(\"recent_issues\", 0)}')"
+	@uv run python -c "import sys; sys.path.append('src'); from issue_tracker.database import IssueDatabase; db = IssueDatabase(); stats = db.get_statistics(); print(f'Total issues: {stats.get(\"total_issues\", 0)}'); print(f'Cached solutions: {stats.get(\"cached_solutions\", 0)}'); print(f'Recent activity: {stats.get(\"recent_issues\", 0)}')"
 
 clean: ## Clean up generated files and cache
 	@echo "$(GREEN)🧹 Cleaning up...$(NC)"
