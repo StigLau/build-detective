@@ -1,0 +1,57 @@
+# GitHub Repositories Configuration for Build Detective
+
+# Default repositories for monitoring
+repositories:
+  - name: "yolo-ffmpeg-mcp"
+    owner: "StigLau"
+    full_name: "StigLau/yolo-ffmpeg-mcp"
+    enabled: true
+    priority: "high"
+    notification_channels:
+      - "console"
+    
+  # Example additional repository
+  # - name: "example-repo"
+  #   owner: "username"
+  #   full_name: "username/example-repo"
+  #   enabled: false
+  #   priority: "medium"
+  #   notification_channels:
+  #     - "console"
+
+# Monitoring settings per repository type
+repository_types:
+  python:
+    patterns:
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "setup.py"
+    ci_files:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+    
+  javascript:
+    patterns:
+      - "package.json"
+      - "package-lock.json"
+      - "yarn.lock"
+    ci_files:
+      - ".github/workflows/*.yml"
+      - ".github/workflows/*.yaml"
+
+# Default analysis priorities
+priorities:
+  high:
+    - "ImportError"
+    - "ModuleNotFoundError" 
+    - "docker.*failed"
+    - "compilation failed"
+  
+  medium:
+    - "timeout"
+    - "connection refused"
+    - "permission denied"
+  
+  low:
+    - "warning"
+    - "deprecated"

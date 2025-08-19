@@ -1,0 +1,169 @@
+# src/main.py
+"""
+Build Detective - Main entry point
+"""
+import argparse
+import asyncio
+import logging
+from datetime import datetime, timedelta
+from typing import Optional
+
+from orchestrator.supervisor import Supervisor
+from github_integration.client import GitHubClient
+from reporting.report_generator import ReportGenerator
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+class BuildDetective:
+    def __init__(self, config_path: str = "config/settings.yaml"):
+        self.supervisor = Supervisor(config_path)
+        self.github_client = GitHubClient()
+        self.report_generator = ReportGenerator()
+        
+    async def run_continuous(self):
+        """Run in continuous monitoring mode"""
+        logger.info("Starting Build Detective in continuous mode")
+        while True:
+            try:
+                await self.check_repositories()
+                await asyncio.sleep(300)  # 5 minutes
+            except KeyboardInterrupt:
+                logger.info("Shutting down Build Detective")
+                break
+            except Exception as e:
+                logger.error(f"Error in continuous mode: {e}")
+                await asyncio.sleep(60)
+    
+    async def run_single(self, repo: str):
+        """Run analysis for a single repository"""
+        logger.info(f"Analyzing repository: {repo}")
+        failures = await self.github_client.get_recent_failures(repo)
+        if failures:
+            analysis = await self.supervisor.analyze_failures(failures)
+            report = self.report_generator.generate(analysis)
+            print(report)
+        else:
+            logger.info("No recent failures found")
+    
+    async def check_repositories(self):
+        """Check all configured repositories"""
+        repos = self.supervisor.get_configured_repos()
+        for repo in repos:
+            try:
+                await self.run_single(repo)
+            except Exception as e:
+                logger.error(f"Error checking {repo}: {e}")
+
+def main():
+    parser = argparse.ArgumentParser(description="Build Detective CI/CD Analyzer")
+    parser.add_argument("--mode", choices=["continuous", "single"], 
+                       default="continuous", help="Running mode")
+    parser.add_argument("--repo", help="Repository to analyze (for single mode)")
+    parser.add_argument("--report", action="store_true", 
+                       help="Generate report for recent failures")
+    parser.add_argument("--days", type=int, default=7, 
+                       help="Days to look back for report")
+    
+    args = parser.parse_args()
+    
+    detective = BuildDetective()
+    
+    if args.report:
+        # Generate report mode
+        asyncio.run(detective.generate_report(args.days))
+    elif args.mode == "single":
+        if not args.repo:
+            parser.error("--repo required for single mode")
+        asyncio.run(detective.run_single(args.repo))
+    else:
+        asyncio.run(detective.run_continuous())
+
+if __name__ == "__main__":
+    main()
+
+# ============================================================================
+
+# src/orchestrator/supervisor.py
+"""
+Supervisor - Main orchestration using Claude Sonnet
+"""
+import json
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+import yaml
+
+from analysis.failure_analyzer import FailureAnalyzer
+from issue_tracker.database import IssueDatabase
+from utils.token_optimizer import TokenOptimizer
+
+@dataclass
+class AnalysisPlan:
+    batch_groups: Dict[str, List[Any]]
+    use_cache: List[str]
+    need_analysis: List[str]
+    estimated_tokens: int
+
+@dataclass
+class QCResult:
+    passed: bool
+    confidence_adjustment: float
+    issues: List[str]
+    needs_escalation: bool
+
+class Supervisor:
+    """Main orchestration component using Claude Sonnet"""
+    
+    def __init__(self, config_path: str):
+        with open(config_path) as f:
+            self.config = yaml.safe_load(f)
+        
+        self.analyzer = FailureAnalyzer(self.config)
+        self.issue_db = IssueDatabase()
+        self.token_optimizer = TokenOptimizer()
+        
+    def plan_analysis(self, failures: List[Dict]) -> AnalysisPlan:
+        """Plan the analysis strategy for a batch of failures"""
+        plan = AnalysisPlan(
+            batch_groups={},
+            use_cache=[],
+            need_analysis=[],
+            estimated_tokens=0
+        )
+        
+        for failure in failures:
+            # Check if we've seen this before
+            signature = self.issue_db.generate_signature(failure)
+            if self.issue_db.has_recent_solution(signature):
+                plan.use_cache.append(failure['id'])
+            else:
+                plan.need_analysis.append(failure['id'])
+                # Group by error type for batching
+                error_type = self._categorize_error(failure)
+                if error_type not in plan.batch_groups:
+                    plan.batch_groups[error_type] = []
+                plan.batch_groups[error_type].append(failure)
+        
+        # Estimate token usage
+        for group in plan.batch_groups.values():
+            for failure in group:
+                compressed = self.token_optimizer.compress_logs(
+                    failure.get('logs', ''), 
+                    max_tokens=500
+                )
+                plan.estimated_tokens += self.token_optimizer.estimate_tokens(compressed)
+        
+        return plan
+    
+    def review_results(self, analysis: Dict) -> QCResult:
+        """Quality control for Haiku's analysis"""
+        qc = QCResult(
+            passed=True,
+            confidence_adjustment=1.0,
+            issues=[],
+            needs_escalation=False
+        )
+        
+        # Check confidence score reasonableness
+        confidence = analysis.get('confidence', 0)
+        if confidence >
