@@ -59,6 +59,26 @@ source /etc/profile.d/maven.sh
 echo ">>> Installing/upgrading pip..."
 python3 -m pip install --upgrade pip
 
+echo ">>> Installing GitHub CLI..."
+if ! command -v gh >/dev/null 2>&1; then
+  GH_VERSION="2.64.0"
+  ARCH=$(uname -m)
+  case $ARCH in
+    x86_64) GH_ARCH="linux_amd64" ;;
+    aarch64) GH_ARCH="linux_arm64" ;;
+    *) echo "Warning: Unsupported architecture for GitHub CLI: $ARCH" ;;
+  esac
+  
+  if [ -n "${GH_ARCH:-}" ]; then
+    echo ">>> Downloading GitHub CLI v${GH_VERSION}..."
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_${GH_ARCH}.tar.gz" | tar -xz
+    mv "gh_${GH_VERSION}_${GH_ARCH}/bin/gh" /usr/local/bin/
+    chmod +x /usr/local/bin/gh
+    rm -rf "gh_${GH_VERSION}_${GH_ARCH}"
+    echo ">>> GitHub CLI installed successfully"
+  fi
+fi
+
 echo ">>> Installing Claude CLI..."
 if ! command -v claude >/dev/null 2>&1; then
   # Download and run Claude CLI installer
@@ -82,6 +102,11 @@ javac -version 2>&1 | head -1
 mvn -version | head -1
 python3 --version
 pip --version
+if command -v gh >/dev/null 2>&1; then
+  gh --version
+else
+  echo "GitHub CLI installation pending"
+fi
 if command -v claude >/dev/null 2>&1; then
   claude --version || echo "Claude CLI installed (version check may require restart)"
 else
@@ -91,5 +116,7 @@ fi
 echo ""
 echo ">>> Next steps:"
 echo "1. Restart your shell or run: source ~/.bashrc"
-echo "2. Verify Claude CLI: claude --version"
-echo "3. Configure Claude CLI: claude configure"
+echo "2. Authenticate GitHub CLI: gh auth login"
+echo "3. Verify GitHub CLI: gh repo list --limit 5"
+echo "4. Configure Claude CLI: claude configure"
+echo "5. Test Build Detective: python src/main.py --repo owner/repo"

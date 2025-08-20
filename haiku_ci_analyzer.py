@@ -51,7 +51,15 @@ class HaikuCIAnalyzer:
     def __init__(self, config_path: str = "config/haiku-config.json"):
         self.config = self._load_config(config_path)
         self.cost_tracker = CostTracker(self.config.get('cost_limits', {}))
-        # self.anthropic_client = AsyncAnthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+        # Import here to avoid dependency issues if anthropic not installed
+        try:
+            from anthropic import AsyncAnthropic
+            self.anthropic_client = AsyncAnthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
+            self.has_anthropic = True
+        except ImportError:
+            logger.warning("Anthropic library not installed, using subprocess call to claude")
+            self.anthropic_client = None
+            self.has_anthropic = False
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file"""
@@ -84,6 +92,70 @@ class HaikuCIAnalyzer:
             }
         }
     
+    async def analyze_actions_run(self, run_url: str) -> CIAnalysisResult:
+        """
+        Analyze GitHub Actions run failures using Haiku
+        
+        Args:
+            run_url: GitHub Actions run URL (e.g., 'https://github.com/StigLau/komposteur/actions/runs/17050578304')
+            
+        Returns:
+            CIAnalysisResult with Haiku-powered analysis
+        """
+        start_time = datetime.now()
+        
+        if not self.cost_tracker.can_proceed():
+            raise CostLimitExceededException("Daily cost limit exceeded")
+        
+        try:
+            # Parse repo and run ID from URL
+            parts = run_url.replace('https://github.com/', '').split('/')
+            if len(parts) < 4 or parts[2] != 'actions' or parts[3] != 'runs':
+                raise ValueError(f"Invalid GitHub Actions URL: {run_url}")
+            
+            repo = f"{parts[0]}/{parts[1]}"
+            run_id = parts[4]
+            
+            logger.info(f"🔍 Haiku analyzing Actions run {run_id} for {repo}...")
+            
+            # Get run details and failures
+            failures = await self._get_run_failures(repo, run_id)
+            
+            if not failures:
+                return CIAnalysisResult(
+                    status="SUCCESS",
+                    primary_error="No CI failures found",
+                    error_type="none",
+                    confidence=10,
+                    blocking_vs_warning="SUCCESS",
+                    suggested_action="All checks passing",
+                    github_commands=[],
+                    estimated_cost=0.01,
+                    analysis_time=(datetime.now() - start_time).total_seconds()
+                )
+            
+            # Get logs for failed jobs
+            enriched_failures = await self._enrich_failures_with_logs(repo, failures)
+            
+            # Use Haiku to analyze failure patterns
+            analysis_prompt = self._create_ci_analysis_prompt(enriched_failures, repo)
+            logger.info(f"📝 Haiku prompt:\n{analysis_prompt}")
+            haiku_response = await self._call_haiku(analysis_prompt)
+            
+            # Parse Haiku response
+            result = self._parse_haiku_response(haiku_response, failures)
+            result.analysis_time = (datetime.now() - start_time).total_seconds()
+            
+            # Track cost
+            self.cost_tracker.record_operation("ci_analysis", result.estimated_cost)
+            
+            logger.info(f"✅ Haiku analysis complete: {result.confidence}/10 confidence, ${result.estimated_cost:.4f}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Haiku CI analysis failed: {e}")
+            return self._fallback_analysis(failures if 'failures' in locals() else [])
+
     async def analyze_pr_failures(self, repo: str, pr_number: str) -> CIAnalysisResult:
         """
         Analyze PR CI failures using Haiku for cost-effective pattern recognition
@@ -124,6 +196,7 @@ class HaikuCIAnalyzer:
             
             # Step 3: Use Haiku to analyze failure patterns
             analysis_prompt = self._create_ci_analysis_prompt(enriched_failures, repo)
+            logger.info(f"📝 Haiku prompt:\n{analysis_prompt}")
             haiku_response = await self._call_haiku(analysis_prompt)
             
             # Step 4: Parse Haiku response
@@ -140,6 +213,33 @@ class HaikuCIAnalyzer:
             logger.error(f"❌ Haiku CI analysis failed: {e}")
             return self._fallback_analysis(failures if 'failures' in locals() else [])
     
+    async def _get_run_failures(self, repo: str, run_id: str) -> List[CIFailure]:
+        """Get failures from a specific GitHub Actions run"""
+        try:
+            cmd = ['gh', 'run', 'view', run_id, '--repo', repo, '--json', 'jobs']
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            
+            data = json.loads(result.stdout)
+            failures = []
+            
+            for job in data.get('jobs', []):
+                if job.get('conclusion') == 'failure':
+                    failures.append(CIFailure(
+                        job_name=job['name'],
+                        workflow_name=data.get('name', 'Unknown'),
+                        run_id=run_id,
+                        conclusion='FAILURE'
+                    ))
+            
+            return failures
+            
+        except subprocess.CalledProcessError as e:
+            logger.error(f"GitHub CLI error getting run {run_id}: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {e}")
+            return []
+
     async def _get_pr_failures(self, repo: str, pr_number: str) -> List[CIFailure]:
         """Get PR failures using GitHub CLI"""
         try:
@@ -256,29 +356,90 @@ Return ONLY JSON:
 Focus on actionable solutions. Be concise for cost efficiency."""
     
     async def _call_haiku(self, prompt: str) -> str:
-        """Call Claude Haiku API directly (simulated for now)"""
-        # In production, this would be:
-        # response = await self.anthropic_client.messages.create(
-        #     model="claude-3-haiku-20240307",
-        #     max_tokens=800,
-        #     temperature=0.1,
-        #     messages=[{"role": "user", "content": prompt}]
-        # )
-        # return response.content[0].text
-        
-        # Mock response simulating real Haiku analysis
+        """Call Claude Haiku API directly using available Claude Code connection"""
         logger.info("🤖 Calling Haiku API for CI analysis...")
-        await asyncio.sleep(0.5)  # Simulate API call
         
-        return '''{
-            "status": "PARTIAL",
-            "primary_error": "Docker UV dependency parsing creates malformed files (=1.0.0, =1.9.3, etc.)",
-            "error_type": "docker_build",
-            "confidence": 9,
-            "blocking_vs_warning": "BLOCKING",
-            "suggested_action": "Quote version specifiers in Dockerfile UV commands and add cache-busting layer",
-            "github_commands": ["gh run view <run-id> --repo StigLau/yolo-ffmpeg-mcp --log"]
-        }'''
+        if self.has_anthropic and self.anthropic_client:
+            try:
+                response = await self.anthropic_client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=800,
+                    temperature=0.1,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return response.content[0].text
+            except Exception as e:
+                logger.error(f"Anthropic API call failed: {e}, falling back to subprocess")
+        
+        # Fallback: Use Claude Code's subprocess approach
+        import tempfile
+        import subprocess
+        
+        try:
+            # Write prompt to temp file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+                f.write(prompt)
+                temp_file = f.name
+            
+            # Call claude with the prompt file using proper Claude Code CLI syntax
+            cmd = ['claude', '--print', prompt]
+            result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                response = result.stdout.strip()
+                logger.info(f"🔍 Claude response: {response[:200]}...")
+                return response
+            else:
+                logger.error(f"Claude subprocess failed: {result.stderr}")
+                raise Exception(f"Claude call failed: {result.stderr}")
+                
+        except Exception as e:
+            logger.error(f"Claude subprocess call failed: {e}")
+            # Final fallback to basic analysis
+            return self._emergency_fallback_response(prompt)
+        finally:
+            # Clean up temp file
+            try:
+                import os
+                os.unlink(temp_file)
+            except:
+                pass
+
+    def _emergency_fallback_response(self, prompt: str) -> str:
+        """Emergency fallback when all Haiku calls fail"""
+        logger.warning("Using emergency fallback response")
+        
+        # Basic pattern matching for common issues
+        if "Integration Tests with AWS" in prompt:
+            return '''{
+                "status": "FAILURE",
+                "primary_error": "Integration tests with AWS failed - authentication or configuration issue",
+                "error_type": "integration_test",
+                "confidence": 6,
+                "blocking_vs_warning": "BLOCKING",
+                "suggested_action": "Check AWS credentials and test environment configuration",
+                "github_commands": ["gh run view --log"]
+            }'''
+        elif "docker" in prompt.lower() or "build" in prompt.lower():
+            return '''{
+                "status": "FAILURE", 
+                "primary_error": "Build or Docker-related failure detected",
+                "error_type": "docker_build",
+                "confidence": 5,
+                "blocking_vs_warning": "BLOCKING",
+                "suggested_action": "Review build logs and Docker configuration",
+                "github_commands": ["gh run view --log"]
+            }'''
+        else:
+            return '''{
+                "status": "PARTIAL",
+                "primary_error": "CI failure detected - manual analysis needed",
+                "error_type": "unknown",
+                "confidence": 3,
+                "blocking_vs_warning": "BLOCKING",
+                "suggested_action": "Manual review of CI logs required",
+                "github_commands": ["gh run view --log"]
+            }'''
     
     def _parse_haiku_response(self, response: str, failures: List[CIFailure]) -> CIAnalysisResult:
         """Parse Haiku JSON response into structured result"""
@@ -342,20 +503,38 @@ async def main():
     import sys
     
     if len(sys.argv) != 3:
-        print("Usage: python haiku_ci_analyzer.py <repo> <pr_number>")
-        print("Example: python haiku_ci_analyzer.py StigLau/yolo-ffmpeg-mcp 16")
+        print("Usage:")
+        print("  python haiku_ci_analyzer.py <repo> <pr_number>")
+        print("  python haiku_ci_analyzer.py analyze <github_actions_url>")
+        print("Examples:")
+        print("  python haiku_ci_analyzer.py StigLau/yolo-ffmpeg-mcp 16")
+        print("  python haiku_ci_analyzer.py analyze https://github.com/StigLau/komposteur/actions/runs/17050578304")
         return 1
-    
-    repo = sys.argv[1]
-    pr_number = sys.argv[2]
     
     analyzer = HaikuCIAnalyzer()
     
     try:
-        result = await analyzer.analyze_pr_failures(repo, pr_number)
+        # Check if this is an Actions URL analysis
+        if sys.argv[1] == "analyze" and "github.com" in sys.argv[2] and "/actions/runs/" in sys.argv[2]:
+            run_url = sys.argv[2]
+            result = await analyzer.analyze_actions_run(run_url)
+            
+            # Extract repo from URL for display
+            parts = run_url.replace('https://github.com/', '').split('/')
+            repo = f"{parts[0]}/{parts[1]}"
+            run_id = parts[4]
+            
+            print(f"🤖 Haiku CI Analysis - analyze {repo}#{run_id}")
+            print("=" * 60)
+        else:
+            # Traditional PR analysis
+            repo = sys.argv[1]
+            pr_number = sys.argv[2]
+            result = await analyzer.analyze_pr_failures(repo, pr_number)
+            
+            print(f"🤖 Haiku CI Analysis - {repo} PR#{pr_number}")
+            print("=" * 60)
         
-        print(f"🤖 Haiku CI Analysis - {repo} PR#{pr_number}")
-        print("=" * 60)
         print(f"Status: {result.status}")
         print(f"Primary Error: {result.primary_error}")
         print(f"Type: {result.error_type}")
